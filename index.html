@@ -385,10 +385,13 @@
           const color = markerColor(s.crime_rate, s.rent_avg, crimeStats, rentStats, true, true);
 
           const linesHtml = s.lines.join(", ");
-          const safetyHtml = s.safety
-            ? `<span class="safety-${s.safety_class}">${s.safety}</span>`
-            + (s.crime_rate != null ? ` (${s.crime_rate}件/千人)` : "")
-            : "-";
+          let safetyHtml = "-";
+          if (s.crime_rate != null) {
+            const ratio = deviationRatio(s.crime_rate, crimeStats.mean, crimeStats.stddev);
+            const label = ratio < 1/3 ? "良好" : ratio < 2/3 ? "普通" : "注意";
+            const cls = ratio < 1/3 ? "good" : ratio < 2/3 ? "normal" : "caution";
+            safetyHtml = `<span class="safety-${cls}">${label}</span> (${s.crime_rate}件/千人)`;
+          }
           const rentHtml = s.rent_avg ? `${s.rent_avg}万円` : "-";
           const cityHtml = s.city || "-";
 
