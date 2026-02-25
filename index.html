@@ -15,7 +15,7 @@
       padding: 8px 16px;
       font-size: 14px;
     }
-    #map { height: calc(100vh - 36px); width: 100%; }
+    #map { height: calc(100vh - 76px); width: 100%; }
 
     .station-popup h3 {
       font-size: 15px;
@@ -83,8 +83,131 @@
       width: 14px; height: 14px;
       border-radius: 50%; display: inline-block;
     }
+    /* フィルターパネル */
+    #filter-bar {
+      background: #0f172a;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      flex-wrap: wrap;
+    }
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .filter-label {
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: bold;
+      min-width: 32px;
+    }
+    .filter-value {
+      color: #e2e8f0;
+      font-size: 12px;
+      min-width: 120px;
+      font-variant-numeric: tabular-nums;
+    }
+    .filter-count {
+      color: #64748b;
+      font-size: 11px;
+    }
+
+    /* デュアルレンジスライダー */
+    .dual-range {
+      position: relative;
+      width: 220px;
+      height: 24px;
+    }
+    .dual-range .track {
+      position: absolute;
+      top: 7px;
+      left: 0;
+      right: 0;
+      height: 10px;
+      border-radius: 5px;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    /* 選択範囲外を暗くするオーバーレイ */
+    .dual-range .overlay-left,
+    .dual-range .overlay-right {
+      position: absolute;
+      top: 7px;
+      height: 10px;
+      background: rgba(0,0,0,0.55);
+      pointer-events: none;
+      z-index: 1;
+    }
+    .dual-range .overlay-left {
+      left: 0;
+      border-radius: 5px 0 0 5px;
+    }
+    .dual-range .overlay-right {
+      right: 0;
+      border-radius: 0 5px 5px 0;
+    }
+    .dual-range input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 24px;
+      background: transparent;
+      pointer-events: none;
+      margin: 0;
+      z-index: 2;
+    }
+    .dual-range input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: white;
+      border: 2px solid #334155;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+      cursor: pointer;
+      pointer-events: auto;
+    }
+    .dual-range input[type="range"]::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: white;
+      border: 2px solid #334155;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+      cursor: pointer;
+      pointer-events: auto;
+    }
+
+    /* 治安トラック: 緑→赤 */
+    .track-safety {
+      background: linear-gradient(to right,
+        hsl(142,75%,40%),
+        hsl(90,75%,40%),
+        hsl(45,75%,40%),
+        hsl(20,75%,40%),
+        hsl(0,75%,40%)
+      );
+    }
+    /* 家賃トラック: 明→暗 */
+    .track-rent {
+      background: linear-gradient(to right,
+        hsl(210,15%,85%),
+        hsl(210,20%,65%),
+        hsl(210,30%,45%),
+        hsl(210,40%,28%),
+        hsl(210,50%,12%)
+      );
+    }
+
     @media (max-width: 600px) {
       .legend.collapsed { min-width: auto; }
+      .dual-range { width: 160px; }
+      #filter-bar { gap: 12px; }
     }
   </style>
 </head>
@@ -97,6 +220,31 @@
     </span>
     <label style="margin-left:20px;"><input type="checkbox" id="toggle-safety" checked> 治安</label>
     <label style="margin-left:8px;"><input type="checkbox" id="toggle-rent" checked> 家賃</label>
+  </div>
+  <div id="filter-bar">
+    <div class="filter-group">
+      <span class="filter-label">治安</span>
+      <div class="dual-range" id="range-safety">
+        <div class="track track-safety"></div>
+        <div class="overlay-left"></div>
+        <div class="overlay-right"></div>
+        <input type="range" min="0" max="1000" value="0" step="1" data-role="min">
+        <input type="range" min="0" max="1000" value="1000" step="1" data-role="max">
+      </div>
+      <span class="filter-value" id="safety-value">すべて</span>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">家賃</span>
+      <div class="dual-range" id="range-rent">
+        <div class="track track-rent"></div>
+        <div class="overlay-left"></div>
+        <div class="overlay-right"></div>
+        <input type="range" min="0" max="1000" value="0" step="1" data-role="min">
+        <input type="range" min="0" max="1000" value="1000" step="1" data-role="max">
+      </div>
+      <span class="filter-value" id="rent-value">すべて</span>
+    </div>
+    <span class="filter-count" id="filter-count"></span>
   </div>
   <div id="map"></div>
 
@@ -302,6 +450,10 @@
           return div;
         };
         legend.addTo(map);
+
+        // フィルター初期化
+        initFilters();
+        applyFilters();
       });
 
     // ズーム変更時にサイズ再計算 + 重なり再計算
@@ -327,6 +479,110 @@
     // 治安・家賃トグル
     document.getElementById("toggle-safety").addEventListener("change", updateColors);
     document.getElementById("toggle-rent").addEventListener("change", updateColors);
+
+    // --- デュアルレンジ フィルタリング ---
+    let crimeDataMin = 0, crimeDataMax = 16;
+    let rentDataMin = 0, rentDataMax = 8;
+
+    function initFilters() {
+      const crimes = stationsData.filter(s => s.crime_rate != null).map(s => s.crime_rate);
+      const rents = stationsData.filter(s => s.rent_avg != null).map(s => s.rent_avg);
+      crimeDataMin = Math.floor(Math.min(...crimes) * 10) / 10;
+      crimeDataMax = Math.ceil(Math.max(...crimes) * 10) / 10;
+      rentDataMin = Math.floor(Math.min(...rents) * 10) / 10;
+      rentDataMax = Math.ceil(Math.max(...rents) * 10) / 10;
+    }
+
+    function pctToValue(pct, dataMin, dataMax) {
+      return dataMin + (pct / 1000) * (dataMax - dataMin);
+    }
+
+    // オーバーレイ（範囲外を暗く）を更新
+    function updateOverlays(container) {
+      const minInput = container.querySelector('[data-role="min"]');
+      const maxInput = container.querySelector('[data-role="max"]');
+      const minPct = Number(minInput.value) / 10;
+      const maxPct = Number(maxInput.value) / 10;
+      container.querySelector('.overlay-left').style.width = minPct + '%';
+      container.querySelector('.overlay-right').style.width = (100 - maxPct) + '%';
+    }
+
+    // デュアルスライダーのイベント設定
+    function setupDualRange(containerId) {
+      const container = document.getElementById(containerId);
+      const minInput = container.querySelector('[data-role="min"]');
+      const maxInput = container.querySelector('[data-role="max"]');
+
+      minInput.addEventListener('input', () => {
+        if (Number(minInput.value) > Number(maxInput.value)) {
+          minInput.value = maxInput.value;
+        }
+        updateOverlays(container);
+        applyFilters();
+      });
+      maxInput.addEventListener('input', () => {
+        if (Number(maxInput.value) < Number(minInput.value)) {
+          maxInput.value = minInput.value;
+        }
+        updateOverlays(container);
+        applyFilters();
+      });
+
+      updateOverlays(container);
+    }
+
+    function applyFilters() {
+      const safetyContainer = document.getElementById("range-safety");
+      const rentContainer = document.getElementById("range-rent");
+      const safetyMinPct = Number(safetyContainer.querySelector('[data-role="min"]').value);
+      const safetyMaxPct = Number(safetyContainer.querySelector('[data-role="max"]').value);
+      const rentMinPct = Number(rentContainer.querySelector('[data-role="min"]').value);
+      const rentMaxPct = Number(rentContainer.querySelector('[data-role="max"]').value);
+
+      const filterCrimeMin = pctToValue(safetyMinPct, crimeDataMin, crimeDataMax);
+      const filterCrimeMax = pctToValue(safetyMaxPct, crimeDataMin, crimeDataMax);
+      const filterRentMin = pctToValue(rentMinPct, rentDataMin, rentDataMax);
+      const filterRentMax = pctToValue(rentMaxPct, rentDataMin, rentDataMax);
+
+      // ラベル更新
+      const safetyLabel = document.getElementById("safety-value");
+      const rentLabel = document.getElementById("rent-value");
+
+      if (safetyMinPct <= 0 && safetyMaxPct >= 1000) {
+        safetyLabel.textContent = "すべて";
+      } else {
+        safetyLabel.textContent = `${filterCrimeMin.toFixed(1)} 〜 ${filterCrimeMax.toFixed(1)} 件/千人`;
+      }
+      if (rentMinPct <= 0 && rentMaxPct >= 1000) {
+        rentLabel.textContent = "すべて";
+      } else {
+        rentLabel.textContent = `${filterRentMin.toFixed(1)} 〜 ${filterRentMax.toFixed(1)} 万円`;
+      }
+
+      // マーカー表示/非表示
+      let shown = 0;
+      const isFullCrime = safetyMinPct <= 0 && safetyMaxPct >= 1000;
+      const isFullRent = rentMinPct <= 0 && rentMaxPct >= 1000;
+
+      stationsData.forEach((s, i) => {
+        const crimeOk = isFullCrime || s.crime_rate == null
+          || (s.crime_rate >= filterCrimeMin && s.crime_rate <= filterCrimeMax);
+        const rentOk = isFullRent || s.rent_avg == null
+          || (s.rent_avg >= filterRentMin && s.rent_avg <= filterRentMax);
+        if (crimeOk && rentOk) {
+          if (!map.hasLayer(allMarkers[i])) allMarkers[i].addTo(map);
+          shown++;
+        } else {
+          if (map.hasLayer(allMarkers[i])) map.removeLayer(allMarkers[i]);
+        }
+      });
+
+      document.getElementById("filter-count").textContent = `${shown} / ${stationsData.length} 駅表示`;
+      document.getElementById("station-count").textContent = shown;
+    }
+
+    setupDualRange("range-safety");
+    setupDualRange("range-rent");
   </script>
 </body>
 </html>
