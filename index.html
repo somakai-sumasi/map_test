@@ -154,6 +154,11 @@
     let stationsData = [];
     let crimeStats = { mean: 0, stddev: 1 };
     let rentStats = { mean: 0, stddev: 1 };
+    let baseRadius = 7;
+
+    function radiusForZoom(zoom) {
+      return Math.max(2, Math.round(baseRadius * (zoom / 11)));
+    }
     // 各駅の元のHSL成分を計算
     function calcHSL(s, showSafety, showRent) {
       const hue = showSafety ? (crimeToHue(s.crime_rate, crimeStats) ?? 215) : 0;
@@ -252,7 +257,7 @@
           `;
 
           const marker = L.circleMarker([s.lat, s.lng], {
-            radius: 7,
+            radius: radiusForZoom(map.getZoom()),
             color: color,
             fillColor: color,
             fillOpacity: 1,
@@ -299,14 +304,21 @@
         legend.addTo(map);
       });
 
-    // ズーム変更時に重なりを再計算
-    map.on("zoomend", updateColors);
+    // ズーム変更時にサイズ再計算 + 重なり再計算
+    map.on("zoomend", () => {
+      const r = radiusForZoom(map.getZoom());
+      allMarkers.forEach((m) => m.setRadius(r));
+      document.getElementById("size-slider").value = r;
+      document.getElementById("size-label").textContent = r;
+      updateColors();
+    });
 
-    // サイズスライダー
+    // サイズスライダー（手動調整時は基準値も更新）
     const slider = document.getElementById("size-slider");
     const sizeLabel = document.getElementById("size-label");
     slider.addEventListener("input", (e) => {
       const r = Number(e.target.value);
+      baseRadius = r * 11 / map.getZoom();
       sizeLabel.textContent = r;
       allMarkers.forEach((m) => m.setRadius(r));
       updateColors();
