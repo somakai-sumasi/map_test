@@ -48,17 +48,43 @@
 
     .legend {
       background: white;
-      padding: 10px 14px;
       border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.2);
       font-size: 13px;
       line-height: 1.8;
+    }
+    .legend-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      cursor: pointer;
+      user-select: none;
+      font-weight: bold;
+      font-size: 13px;
+    }
+    .legend-toggle::after {
+      content: "▲";
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+    .legend.collapsed .legend-toggle::after {
+      content: "▼";
+    }
+    .legend-body {
+      padding: 0 14px 10px;
+    }
+    .legend.collapsed .legend-body {
+      display: none;
     }
     .legend h4 { margin-bottom: 4px; }
     .legend-item { display: flex; align-items: center; gap: 6px; }
     .legend-circle {
       width: 14px; height: 14px;
       border-radius: 50%; display: inline-block;
+    }
+    @media (max-width: 600px) {
+      .legend.collapsed { min-width: auto; }
     }
   </style>
 </head>
@@ -119,22 +145,74 @@
 
     const map = L.map("map").setView([34.7024, 135.4959], 11);
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
+    L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>',
+      maxZoom: 18,
     }).addTo(map);
 
     let allMarkers = [];
     let stationsData = [];
     let crimeStats = { mean: 0, stddev: 1 };
     let rentStats = { mean: 0, stddev: 1 };
+    // 各駅の元のHSL成分を計算
+    function calcHSL(s, showSafety, showRent) {
+      const hue = showSafety ? (crimeToHue(s.crime_rate, crimeStats) ?? 215) : 0;
+      const sat = showSafety ? (s.crime_rate != null ? 75 : 10) : 0;
+      const l = showRent ? rentToLightness(s.rent_avg, rentStats) : 50;
+      return { hue, sat, l };
+    }
 
+    // 重なるマーカーをグループ化して平均色を適用
     function updateColors() {
       const showSafety = document.getElementById("toggle-safety").checked;
       const showRent = document.getElementById("toggle-rent").checked;
-      stationsData.forEach((s, i) => {
-        const color = markerColor(s.crime_rate, s.rent_avg, crimeStats, rentStats, showSafety, showRent);
-        allMarkers[i].setStyle({ fillColor: color });
+      const currentRadius = Number(document.getElementById("size-slider").value);
+
+      const hslValues = stationsData.map(s => calcHSL(s, showSafety, showRent));
+      const pixelPos = stationsData.map(s => map.latLngToLayerPoint([s.lat, s.lng]));
+      const threshold = currentRadius * 1.2;
+
+      // Union-Find で重なるマーカーをグループ化
+      const parent = stationsData.map((_, i) => i);
+      function find(x) { return parent[x] === x ? x : (parent[x] = find(parent[x])); }
+      function union(a, b) { parent[find(a)] = find(b); }
+
+      const maxGeoDist = currentRadius * 0.001; // サイズに比例 (7px→約700m)
+
+      for (let i = 0; i < stationsData.length; i++) {
+        for (let j = i + 1; j < stationsData.length; j++) {
+          const dlat = stationsData[i].lat - stationsData[j].lat;
+          const dlng = stationsData[i].lng - stationsData[j].lng;
+          if (dlat * dlat + dlng * dlng > maxGeoDist * maxGeoDist) continue;
+
+          const dx = pixelPos[i].x - pixelPos[j].x;
+          const dy = pixelPos[i].y - pixelPos[j].y;
+          if (dx * dx + dy * dy < threshold * threshold) {
+            union(i, j);
+          }
+        }
+      }
+
+      // グループごとにHSLを平均
+      const groups = {};
+      for (let i = 0; i < stationsData.length; i++) {
+        const root = find(i);
+        if (!groups[root]) groups[root] = [];
+        groups[root].push(i);
+      }
+
+      Object.values(groups).forEach(group => {
+        let avgH = 0, avgS = 0, avgL = 0;
+        group.forEach(i => {
+          avgH += hslValues[i].hue;
+          avgS += hslValues[i].sat;
+          avgL += hslValues[i].l;
+        });
+        const n = group.length;
+        const color = `hsl(${avgH / n}, ${avgS / n}%, ${avgL / n}%)`;
+        group.forEach(i => {
+          allMarkers[i].setStyle({ fillColor: color, color: color });
+        });
       });
     }
 
@@ -194,29 +272,35 @@
           const rm = rentStats.mean.toFixed(1);
           const rs = rentStats.stddev.toFixed(1);
           div.innerHTML = `
-            <h4>色相: 治安 (犯罪率/千人)</h4>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <span style="font-size:11px;">-2σ</span>
-              <div class="legend-gradient" style="background:linear-gradient(to right, hsl(142,75%,50%), hsl(90,75%,50%), hsl(45,75%,50%), hsl(20,75%,50%), hsl(0,75%,50%));"></div>
-              <span style="font-size:11px;">+2σ</span>
+            <div class="legend-toggle" onclick="this.parentElement.classList.toggle('collapsed')">凡例</div>
+            <div class="legend-body">
+              <h4>色相: 治安 (犯罪率/千人)</h4>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:11px;">-2σ</span>
+                <div class="legend-gradient" style="background:linear-gradient(to right, hsl(142,75%,50%), hsl(90,75%,50%), hsl(45,75%,50%), hsl(20,75%,50%), hsl(0,75%,50%));"></div>
+                <span style="font-size:11px;">+2σ</span>
+              </div>
+              <div style="font-size:11px;color:#888;margin-top:2px;">平均 ${cm}件/千人 (σ=${cs}) / 緑=少 → 赤=多</div>
+              <div class="legend-item" style="margin-top:4px;"><span class="legend-circle" style="background:hsl(215,10%,50%)"></span> データなし</div>
+              <hr style="margin:6px 0;border:none;border-top:1px solid #ddd;">
+              <h4>明るさ: 家賃</h4>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:11px;">-2σ</span>
+                <div class="legend-gradient" style="background:linear-gradient(to right, hsl(90,75%,90%), hsl(90,75%,52%), hsl(90,75%,15%));"></div>
+                <span style="font-size:11px;">+2σ</span>
+              </div>
+              <div style="font-size:11px;color:#888;margin-top:2px;">平均 ${rm}万円 (σ=${rs}) / 明=安 → 暗=高</div>
+              <hr style="margin:6px 0;border:none;border-top:1px solid #ddd;">
+              <p style="font-size:11px;color:#666;">治安: 大阪府警・兵庫県警 犯罪オープンデータ(2024)<br>人口: 国勢調査(2020)<br>家賃: SUUMO家賃相場</p>
             </div>
-            <div style="font-size:11px;color:#888;margin-top:2px;">平均 ${cm}件/千人 (σ=${cs}) / 緑=少 → 赤=多</div>
-            <div class="legend-item" style="margin-top:4px;"><span class="legend-circle" style="background:hsl(215,10%,50%)"></span> データなし</div>
-            <hr style="margin:6px 0;border:none;border-top:1px solid #ddd;">
-            <h4>明るさ: 家賃</h4>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <span style="font-size:11px;">-2σ</span>
-              <div class="legend-gradient" style="background:linear-gradient(to right, hsl(90,75%,90%), hsl(90,75%,52%), hsl(90,75%,15%));"></div>
-              <span style="font-size:11px;">+2σ</span>
-            </div>
-            <div style="font-size:11px;color:#888;margin-top:2px;">平均 ${rm}万円 (σ=${rs}) / 明=安 → 暗=高</div>
-            <hr style="margin:6px 0;border:none;border-top:1px solid #ddd;">
-            <p style="font-size:11px;color:#666;">治安: 大阪府警・兵庫県警 犯罪オープンデータ(2024)<br>人口: 国勢調査(2020)<br>家賃: SUUMO家賃相場</p>
           `;
           return div;
         };
         legend.addTo(map);
       });
+
+    // ズーム変更時に重なりを再計算
+    map.on("zoomend", updateColors);
 
     // サイズスライダー
     const slider = document.getElementById("size-slider");
@@ -225,6 +309,7 @@
       const r = Number(e.target.value);
       sizeLabel.textContent = r;
       allMarkers.forEach((m) => m.setRadius(r));
+      updateColors();
     });
 
     // 治安・家賃トグル
