@@ -42,7 +42,10 @@ def download_csv(url):
                     continue
             else:
                 return []
-            reader = csv.DictReader(io.StringIO(text))
+            # デリミタ自動判定（タブ or カンマ）
+            first_line = text.split("\n")[0]
+            delimiter = "\t" if "\t" in first_line else ","
+            reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
             return list(reader)
     except Exception as e:
         print(f"    ダウンロード失敗: {e}")

@@ -90,10 +90,10 @@
       return Math.min(1, Math.max(0, (z + 2) / 4)); // -2σ→0, +2σ→1
     }
 
-    // 犯罪件数→色相（偏差ベース: 緑142→赤0）
-    function crimeToHue(crimeCount, stats) {
-      if (crimeCount == null) return null;
-      const ratio = deviationRatio(crimeCount, stats.mean, stats.stddev);
+    // 犯罪率→色相（偏差ベース: 緑142→赤0）
+    function crimeToHue(crimeRate, stats) {
+      if (crimeRate == null) return null;
+      const ratio = deviationRatio(crimeRate, stats.mean, stats.stddev);
       return 142 - ratio * 142;
     }
 
@@ -104,12 +104,12 @@
       return 90 - ratio * 75;
     }
 
-    function markerColor(crimeCount, rent, crimeStats, rentStats, showSafety, showRent) {
+    function markerColor(crimeRate, rent, crimeStats, rentStats, showSafety, showRent) {
       const hue = showSafety
-        ? (crimeToHue(crimeCount, crimeStats) ?? 215)
+        ? (crimeToHue(crimeRate, crimeStats) ?? 215)
         : 0;
       const s = showSafety
-        ? (crimeCount != null ? 75 : 10)
+        ? (crimeRate != null ? 75 : 10)
         : 0;
       const l = showRent
         ? rentToLightness(rent, rentStats)
@@ -133,7 +133,7 @@
       const showSafety = document.getElementById("toggle-safety").checked;
       const showRent = document.getElementById("toggle-rent").checked;
       stationsData.forEach((s, i) => {
-        const color = markerColor(s.crime_count, s.rent_avg, crimeStats, rentStats, showSafety, showRent);
+        const color = markerColor(s.crime_rate, s.rent_avg, crimeStats, rentStats, showSafety, showRent);
         allMarkers[i].setStyle({ fillColor: color });
       });
     }
@@ -147,16 +147,16 @@
         const rents = stations.filter((s) => s.rent_avg).map((s) => s.rent_avg);
         rentStats = calcStats(rents);
 
-        const crimes = stations.filter((s) => s.crime_count != null).map((s) => s.crime_count);
+        const crimes = stations.filter((s) => s.crime_rate != null).map((s) => s.crime_rate);
         crimeStats = calcStats(crimes);
 
         stations.forEach((s) => {
-          const color = markerColor(s.crime_count, s.rent_avg, crimeStats, rentStats, true, true);
+          const color = markerColor(s.crime_rate, s.rent_avg, crimeStats, rentStats, true, true);
 
           const linesHtml = s.lines.join(", ");
           const safetyHtml = s.safety
             ? `<span class="safety-${s.safety_class}">${s.safety}</span>`
-            + (s.crime_count != null ? ` (${s.crime_count}件/年)` : "")
+            + (s.crime_rate != null ? ` (${s.crime_rate}件/千人)` : "")
             : "-";
           const rentHtml = s.rent_avg ? `${s.rent_avg}万円` : "-";
           const cityHtml = s.city || "-";
@@ -175,10 +175,10 @@
 
           const marker = L.circleMarker([s.lat, s.lng], {
             radius: 7,
-            color: "#fff",
+            color: color,
             fillColor: color,
             fillOpacity: 1,
-            weight: 1.5,
+            weight: 0,
           })
             .addTo(map)
             .bindPopup(popupHtml);
@@ -189,18 +189,18 @@
         const legend = L.control({ position: "bottomright" });
         legend.onAdd = function () {
           const div = L.DomUtil.create("div", "legend");
-          const cm = Math.round(crimeStats.mean);
-          const cs = Math.round(crimeStats.stddev);
+          const cm = crimeStats.mean.toFixed(1);
+          const cs = crimeStats.stddev.toFixed(1);
           const rm = rentStats.mean.toFixed(1);
           const rs = rentStats.stddev.toFixed(1);
           div.innerHTML = `
-            <h4>色相: 治安 (犯罪件数/年)</h4>
+            <h4>色相: 治安 (犯罪率/千人)</h4>
             <div style="display:flex;align-items:center;gap:6px;">
               <span style="font-size:11px;">-2σ</span>
               <div class="legend-gradient" style="background:linear-gradient(to right, hsl(142,75%,50%), hsl(90,75%,50%), hsl(45,75%,50%), hsl(20,75%,50%), hsl(0,75%,50%));"></div>
               <span style="font-size:11px;">+2σ</span>
             </div>
-            <div style="font-size:11px;color:#888;margin-top:2px;">平均 ${cm}件 (σ=${cs}) / 緑=少 → 赤=多</div>
+            <div style="font-size:11px;color:#888;margin-top:2px;">平均 ${cm}件/千人 (σ=${cs}) / 緑=少 → 赤=多</div>
             <div class="legend-item" style="margin-top:4px;"><span class="legend-circle" style="background:hsl(215,10%,50%)"></span> データなし</div>
             <hr style="margin:6px 0;border:none;border-top:1px solid #ddd;">
             <h4>明るさ: 家賃</h4>
@@ -211,7 +211,7 @@
             </div>
             <div style="font-size:11px;color:#888;margin-top:2px;">平均 ${rm}万円 (σ=${rs}) / 明=安 → 暗=高</div>
             <hr style="margin:6px 0;border:none;border-top:1px solid #ddd;">
-            <p style="font-size:11px;color:#666;">治安: 大阪府警・兵庫県警 犯罪オープンデータ(2024)<br>家賃: SUUMO家賃相場</p>
+            <p style="font-size:11px;color:#666;">治安: 大阪府警・兵庫県警 犯罪オープンデータ(2024)<br>人口: 国勢調査(2020)<br>家賃: SUUMO家賃相場</p>
           `;
           return div;
         };

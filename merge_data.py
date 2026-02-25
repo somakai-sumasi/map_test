@@ -8,24 +8,38 @@ with open("crime_by_city.json", encoding="utf-8") as f:
     crime = json.load(f)
 with open("rent_by_station.json", encoding="utf-8") as f:
     rent = json.load(f)
+with open("population_by_city.json", encoding="utf-8") as f:
+    population = json.load(f)
 
-# --- 犯罪データの統計（人口あたりの件数でランク付けしたいが人口データがないため件数で3段階に分類） ---
-# しきい値: 良好=80件以下, 普通=150件以下, 注意=それ以上
-q1 = 80
-q2 = 150
+# --- 犯罪率（人口千人あたり）を算出し、3段階に分類 ---
+# まず全市区町村の犯罪率を計算して統計値を求める
+crime_rates = {}
+for city, count in crime.items():
+    pop = population.get(city)
+    if pop and pop > 0:
+        crime_rates[city] = count / pop * 1000
+
+# 犯罪率の統計（三分位数で分類）
+sorted_rates = sorted(crime_rates.values())
+n = len(sorted_rates)
+q1_rate = sorted_rates[n // 3]
+q2_rate = sorted_rates[2 * n // 3]
+print(f"犯罪率（人口千人あたり）: 下位1/3={q1_rate:.2f}, 上位1/3={q2_rate:.2f}")
 
 def get_safety(city_name):
-    """市区町村名から治安レベルを返す"""
+    """市区町村名から治安レベルを返す（人口千人あたりの犯罪率ベース）"""
     count = crime.get(city_name, None)
-    if count is None:
-        return {"crime_count": None, "safety": "データなし", "safety_class": "unknown"}
-    if count <= q1:
+    pop = population.get(city_name, None)
+    if count is None or pop is None or pop == 0:
+        return {"crime_count": None, "crime_rate": None, "safety": "データなし", "safety_class": "unknown"}
+    rate = round(count / pop * 1000, 2)
+    if rate <= q1_rate:
         level, cls = "良好", "good"
-    elif count <= q2:
+    elif rate <= q2_rate:
         level, cls = "普通", "normal"
     else:
         level, cls = "注意", "caution"
-    return {"crime_count": count, "safety": level, "safety_class": cls}
+    return {"crime_count": count, "crime_rate": rate, "safety": level, "safety_class": cls}
 
 # --- 駅名→市区町村のマッピング（郵便番号から市区町村を特定するのは難しいので、犯罪データのキーと直接マッチング） ---
 # 犯罪データのキーは「大阪市北区」「尼崎市」などの市区町村名
@@ -117,6 +131,7 @@ for s in stations:
             crime_matched += 1
     else:
         s["crime_count"] = None
+        s["crime_rate"] = None
         s["safety"] = "データなし"
         s["safety_class"] = "unknown"
 
